@@ -1,0 +1,133 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub's macOS runners are split by major version/arch.
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar.gz
+
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin apple-notes
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=target/${{ matrix.target }}/release/apple-notes
+          OUT=apple-notes-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir -p dist/$OUT
+          cp "$BIN" dist/$OUT/
+          cp README.md LICENSE CHANGELOG.md dist/$OUT/
+          tar -C dist -czf dist/$OUT.${{ matrix.archive }} $OUT
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+
+  homebrew:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check token
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
+            echo "Missing secrets.HOMEBREW_TAP_TOKEN" >&2
+            echo "Create a fine-grained PAT with access to JaviSoto/homebrew-tap (contents:read/write) and add it as a repo secret named HOMEBREW_TAP_TOKEN." >&2
+            exit 1
+          fi
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ github.ref_name }}'
+          mkdir -p /tmp/dist
+          gh release download "$TAG" --repo JaviSoto/apple-notes-cli --pattern 'apple-notes-*.tar.gz' --dir /tmp/dist
+          ls -la /tmp/dist
+
+      - name: Update tap formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ github.ref_name }}'
+          VERSION="${TAG#v}"
+
+          mac_intel=/tmp/dist/apple-notes-${TAG}-x86_64-apple-darwin.tar.gz
+          mac_arm=/tmp/dist/apple-notes-${TAG}-aarch64-apple-darwin.tar.gz
+
+          sha_mac_intel=$(sha256sum "$mac_intel" | awk '{print $1}')
+          sha_mac_arm=$(sha256sum "$mac_arm" | awk '{print $1}')
+
+          rm -rf /tmp/homebrew-tap
+          git clone https://x-access-token:${GH_TOKEN}@github.com/JaviSoto/homebrew-tap.git /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+
+          mkdir -p Formula
+          cat > Formula/apple-notes-cli.rb <<RUBY
+          class AppleNotesCli < Formula
+            desc "A fast, scriptable CLI for Apple Notes (read/write + backups)"
+            homepage "https://github.com/JaviSoto/apple-notes-cli"
+            version "${VERSION}"
+            license "MIT"
+          
+            on_macos do
+              on_arm do
+                url "https://github.com/JaviSoto/apple-notes-cli/releases/download/${TAG}/apple-notes-${TAG}-aarch64-apple-darwin.tar.gz"
+                sha256 "${sha_mac_arm}"
+              end
+          
+              on_intel do
+                url "https://github.com/JaviSoto/apple-notes-cli/releases/download/${TAG}/apple-notes-${TAG}-x86_64-apple-darwin.tar.gz"
+                sha256 "${sha_mac_intel}"
+              end
+            end
+          
+            def install
+              bin.install "apple-notes"
+            end
+          
+            test do
+              assert_match "apple-notes", shell_output("#{bin}/apple-notes --version")
+            end
+          end
+          RUBY
+
+          git add Formula/apple-notes-cli.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "apple-notes-cli ${VERSION}" || exit 0
+          git push origin main

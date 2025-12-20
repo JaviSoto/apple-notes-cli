@@ -1,0 +1,74 @@
+{
+  "accounts": [
+    {
+      "name": "iCloud"
+    }
+  ],
+  "folders_by_account": {
+    "iCloud": [
+      {
+        "id": "f_personal",
+        "name": "Personal",
+        "account": "iCloud",
+        "path": [
+          "Personal"
+        ]
+      },
+      {
+        "id": "f_archive",
+        "name": "Archive",
+        "account": "iCloud",
+        "path": [
+          "Personal",
+          "Archive"
+        ]
+      }
+    ]
+  },
+  "note_summaries_by_account": {
+    "iCloud": [
+      {
+        "id": "n1",
+        "title": "Alpha",
+        "folder_id": "f_personal"
+      },
+      {
+        "id": "n2",
+        "title": "Beta",
+        "folder_id": "f_archive"
+      },
+      {
+        "id": "n3",
+        "title": "Gamma",
+        "folder_id": "f_archive"
+      }
+    ]
+  },
+  "notes_by_id": {
+    "n1": {
+      "id": "n1",
+      "title": "Alpha",
+      "folder_id": "f_personal",
+      "created_at": "2025-12-20T00:00:00Z",
+      "modified_at": "2025-12-20T00:00:00Z",
+      "body_html": "<div><b>Hello</b> Alpha</div>"
+    },
+    "n2": {
+      "id": "n2",
+      "title": "Beta",
+      "folder_id": "f_archive",
+      "created_at": "2025-12-20T00:00:00Z",
+      "modified_at": "2025-12-20T00:00:00Z",
+      "body_html": "<div>Beta body</div>"
+    },
+    "n3": {
+      "id": "n3",
+      "title": "Gamma",
+      "folder_id": "f_archive",
+      "created_at": "2025-12-20T00:00:00Z",
+      "modified_at": "2025-12-20T00:00:00Z",
+      "body_html": "<div>Gamma body</div>"
+    }
+  }
+}
+

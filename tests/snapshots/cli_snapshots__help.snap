@@ -1,0 +1,48 @@
+---
+source: tests/cli_snapshots.rs
+expression: out
+---
+A fast, scriptable CLI for Apple Notes (read/write + backups).
+
+Usage: apple-notes [OPTIONS] <COMMAND>
+
+Commands:
+  accounts  
+  folders   
+  notes     
+  backup    
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+      --account <ACCOUNT>
+          Notes account to target (default: iCloud)
+          
+          [default: iCloud]
+
+      --backend <BACKEND>
+          Backend for reads (writes always use `osascript`)
+
+          Possible values:
+          - auto:      Auto-detect the fastest available backend (prefers DB when present)
+          - osascript: Use `osascript` for all reads and writes
+          - db:        Use the Apple Notes database for reads (macOS only); writes still use `osascript`
+          
+          [default: auto]
+
+      --json
+          Output JSON for machine consumption
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+Examples:
+  apple-notes folders list
+  apple-notes notes list --folder "Personal > Archive"
+  apple-notes notes show x-coredata://... --markdown
+  apple-notes notes create --folder "Personal > Archive" --title "Hello" --body "Hi!"
+  apple-notes backup export --out ./notes-backup
+
+First run on macOS may prompt for Automation permission (osascript → Notes).

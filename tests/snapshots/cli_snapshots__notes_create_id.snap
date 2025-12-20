@@ -1,0 +1,6 @@
+---
+source: tests/cli_snapshots.rs
+assertion_line: 82
+expression: out
+---
+fixture://note/1

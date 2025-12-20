@@ -1,0 +1,7 @@
+---
+source: tests/cli_snapshots.rs
+expression: out
+---
+# Beta
+
+Beta body

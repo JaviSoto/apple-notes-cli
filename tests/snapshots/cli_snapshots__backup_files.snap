@@ -1,0 +1,10 @@
+---
+source: tests/cli_snapshots.rs
+expression: "files.join(\"\\n\")"
+---
+Personal/Alpha-n1/contents.md
+Personal/Alpha-n1/metadata.json
+Personal/Archive/Beta-n2/contents.md
+Personal/Archive/Beta-n2/metadata.json
+Personal/Archive/Gamma-n3/contents.md
+Personal/Archive/Gamma-n3/metadata.json
