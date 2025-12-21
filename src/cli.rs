@@ -22,7 +22,7 @@ use std::path::PathBuf;
   apple-notes notes list --folder "Personal > Archive"
   apple-notes notes show x-coredata://... --markdown
   apple-notes notes create --folder "Personal > Archive" --title "Hello" --body "Hi!"
-  apple-notes backup export --out ./notes-backup
+  apple-notes export --out ./notes-backup
 
 First run on macOS may prompt for Automation permission (osascript → Notes).
 "#
@@ -72,6 +72,18 @@ pub enum Command {
         #[command(subcommand)]
         cmd: NotesCmd,
     },
+    /// Export all notes to a folder structure on disk.
+    Export {
+        /// Output directory. Created if it doesn't exist.
+        #[arg(long)]
+        out: String,
+        /// Number of export worker threads (decode/render + IO).
+        #[arg(long, default_value_t = 4)]
+        jobs: usize,
+    },
+
+    /// Deprecated: use `apple-notes export ...`.
+    #[command(hide = true)]
     Backup {
         #[command(subcommand)]
         cmd: BackupCmd,
@@ -285,6 +297,17 @@ pub fn dispatch(args: Args, backend: Box<dyn NotesBackend>) -> anyhow::Result<()
             }
         },
         Command::Notes { cmd } => dispatch_notes(json, &account, backend, cmd),
+        Command::Export { out, jobs } => {
+            if fixture.is_some() {
+                return backup::export_all(&*backend, &account, out, jobs);
+            }
+            match backend_mode {
+                Backend::Osascript => backup::export_all(&*backend, &account, out, jobs),
+                Backend::Db => backup::export_all_db(&account, out, jobs),
+                Backend::Auto => backup::export_all_db(&account, out.clone(), jobs)
+                    .or_else(|_| backup::export_all(&*backend, &account, out, jobs)),
+            }
+        }
         Command::Backup { cmd } => match cmd {
             BackupCmd::Export { out, jobs } => {
                 if fixture.is_some() {

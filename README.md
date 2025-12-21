@@ -101,8 +101,8 @@ apple-notes notes delete x-coredata://... --yes
 Exports *every* note in the selected account under an output directory:
 
 ```bash
-apple-notes backup export --out ./notes-backup
-apple-notes backup export --out ./notes-backup --jobs 6
+apple-notes export --out ./notes-backup
+apple-notes export --out ./notes-backup --jobs 6
 ```
 
 Directory structure mirrors Notes folder structure (e.g. `notes-backup/Personal/Archive/...`).

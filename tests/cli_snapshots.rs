@@ -111,7 +111,7 @@ fn backup_export_writes_all_notes() {
         .env("NO_COLOR", "1")
         .env("NO_PROGRESS", "1")
         .env("COLUMNS", "120")
-        .args(["backup", "export", "--out"])
+        .args(["export", "--out"])
         .arg(&out_dir);
 
     cmd.assert().success();
@@ -154,7 +154,7 @@ fn backup_export_writes_all_notes_jobs_1() {
         .env("NO_COLOR", "1")
         .env("NO_PROGRESS", "1")
         .env("COLUMNS", "120")
-        .args(["backup", "export", "--out"])
+        .args(["export", "--out"])
         .arg(&out_dir)
         .args(["--jobs", "1"]);
 
