@@ -3,6 +3,9 @@ use std::io::IsTerminal;
 use std::time::Duration;
 
 fn enabled() -> bool {
+    if std::env::var_os("APPLE_NOTES_FORCE_PROGRESS").is_some() {
+        return true;
+    }
     if std::env::var_os("NO_PROGRESS").is_some() {
         return false;
     }
