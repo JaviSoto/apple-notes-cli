@@ -167,8 +167,11 @@ pub enum NotesCmd {
         #[arg(long, conflicts_with_all = ["body", "body_file"])]
         stdin: bool,
         /// Treat body as Markdown (stored as HTML).
-        #[arg(long)]
+        #[arg(long, conflicts_with = "html")]
         markdown: bool,
+        /// Treat body as raw HTML (stored as-is).
+        #[arg(long, conflicts_with = "markdown")]
+        html: bool,
     },
     Rename {
         id: String,
@@ -183,8 +186,11 @@ pub enum NotesCmd {
         body_file: Option<String>,
         #[arg(long, conflicts_with_all = ["body", "body_file"])]
         stdin: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "html")]
         markdown: bool,
+        /// Treat body as raw HTML (stored as-is).
+        #[arg(long, conflicts_with = "markdown")]
+        html: bool,
     },
     Append {
         id: String,
@@ -194,8 +200,11 @@ pub enum NotesCmd {
         body_file: Option<String>,
         #[arg(long, conflicts_with_all = ["body", "body_file"])]
         stdin: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "html")]
         markdown: bool,
+        /// Treat body as raw HTML (stored as-is).
+        #[arg(long, conflicts_with = "markdown")]
+        html: bool,
     },
     Move {
         id: String,
@@ -430,9 +439,12 @@ fn dispatch_notes(
             body_file,
             stdin,
             markdown,
+            html,
         } => {
             let body = read_body(body, body_file, stdin)?;
-            let body_html = if markdown {
+            let body_html = if html {
+                body
+            } else if markdown {
                 render::markdown_to_html(&body)
             } else {
                 render::text_to_html(&body)
@@ -464,9 +476,12 @@ fn dispatch_notes(
             body_file,
             stdin,
             markdown,
+            html,
         } => {
             let body = read_body(body, body_file, stdin)?;
-            let body_html = if markdown {
+            let body_html = if html {
+                body
+            } else if markdown {
                 render::markdown_to_html(&body)
             } else {
                 render::text_to_html(&body)
@@ -484,9 +499,12 @@ fn dispatch_notes(
             body_file,
             stdin,
             markdown,
+            html,
         } => {
             let body = read_body(body, body_file, stdin)?;
-            let body_html = if markdown {
+            let body_html = if html {
+                body
+            } else if markdown {
                 render::markdown_to_html(&body)
             } else {
                 render::text_to_html(&body)
