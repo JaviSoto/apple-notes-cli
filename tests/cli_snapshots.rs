@@ -139,7 +139,7 @@ fn backup_export_writes_all_notes() {
         files.iter().any(|p| p.ends_with("/contents.md")),
         "expected contents.md files"
     );
-    assert_eq!(files.len(), 9, "expected 3 files per note (3 notes)");
+    assert_eq!(files.len(), 6, "expected 2 files per note (3 notes)");
     assert_snapshot!("backup_files", files.join("\n"));
 }
 
@@ -175,6 +175,6 @@ fn backup_export_writes_all_notes_jobs_1() {
         }
     }
     files.sort();
-    assert_eq!(files.len(), 9, "expected 3 files per note (3 notes)");
+    assert_eq!(files.len(), 6, "expected 2 files per note (3 notes)");
     assert_snapshot!("backup_files_jobs_1", files.join("\n"));
 }

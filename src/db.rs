@@ -19,7 +19,10 @@ pub struct NotesDb {
 
 impl NotesDb {
     pub fn open_default() -> anyhow::Result<Self> {
-        let path = default_notes_db_path().ok_or_else(|| anyhow!("unsupported platform"))?;
+        if let Some(p) = std::env::var_os("APPLE_NOTES_DB_PATH") {
+            return Self::open(PathBuf::from(p));
+        }
+        let path = default_notes_db_path().ok_or_else(|| anyhow!("HOME not set"))?;
         Self::open(path)
     }
 

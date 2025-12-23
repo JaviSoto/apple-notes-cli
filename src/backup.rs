@@ -38,12 +38,41 @@ impl FolderIndex {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum HtmlExport {
+    None,
+    All,
+    Only(Vec<String>),
+}
+
+impl HtmlExport {
+    fn wants(&self, note_id: &str) -> bool {
+        match self {
+            HtmlExport::None => false,
+            HtmlExport::All => true,
+            HtmlExport::Only(ids) => ids.iter().any(|id| id == note_id),
+        }
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self, HtmlExport::None)
+    }
+
+    fn selection_len(&self, total: usize) -> usize {
+        match self {
+            HtmlExport::None => 0,
+            HtmlExport::All => total,
+            HtmlExport::Only(ids) => ids.len(),
+        }
+    }
+}
+
 pub fn export_all(
     backend: &dyn NotesBackend,
     account: &str,
     out_dir: String,
     jobs: usize,
-    include_html: bool,
+    html: HtmlExport,
 ) -> anyhow::Result<()> {
     if jobs == 0 {
         return Err(anyhow!("--jobs must be >= 1"));
@@ -91,7 +120,7 @@ pub fn export_all(
                 &folder_index,
                 n,
                 pb.as_ref(),
-                include_html,
+                &html,
             )?;
             write_item(&item)?;
             if let Some(pb) = &pb {
@@ -147,7 +176,7 @@ pub fn export_all(
                     &folder_index,
                     n,
                     pb.as_ref(),
-                    include_html,
+                    &html,
                 )?;
                 work_tx.send(item).ok();
                 sent += 1;
@@ -225,7 +254,7 @@ fn build_item(
     folder_index: &FolderIndex,
     n: NoteSummary,
     _pb: Option<&indicatif::ProgressBar>,
-    include_html: bool,
+    html: &HtmlExport,
 ) -> anyhow::Result<WorkItem> {
     let note = backend.get_note(&n.id)?;
     let folder_path = folder_index.folder_path(&note.folder_id).ok_or_else(|| {
@@ -237,7 +266,7 @@ fn build_item(
     })?;
 
     let contents_md = render::note_to_markdown(&note);
-    let contents_html = if include_html {
+    let contents_html = if html.wants(&note.id) {
         Some(note.body_html.clone())
     } else {
         None
@@ -298,11 +327,8 @@ pub fn export_all_db(
     account: &str,
     out_dir: String,
     jobs: usize,
-    include_html: bool,
+    html: HtmlExport,
 ) -> anyhow::Result<()> {
-    if !cfg!(target_os = "macos") {
-        return Err(anyhow!("db export is supported on macOS only"));
-    }
     if jobs == 0 {
         return Err(anyhow!("--jobs must be >= 1"));
     }
@@ -320,7 +346,7 @@ pub fn export_all_db(
     let folder_index = FolderIndex::new(&folders)?;
 
     let spinner = progress::spinner("Indexing notes…");
-    let note_rows = list_db_notes(account, include_html)?;
+    let note_rows = list_db_notes(account, &html)?;
     if let Some(spinner) = spinner {
         spinner.finish_and_clear();
     }
@@ -425,7 +451,7 @@ struct DbNoteRow {
     body_html: Option<String>,
 }
 
-fn list_db_notes(account: &str, include_html: bool) -> anyhow::Result<Vec<DbNoteRow>> {
+fn list_db_notes(account: &str, include_html: &HtmlExport) -> anyhow::Result<Vec<DbNoteRow>> {
     let db = crate::db::NotesDb::open_default()?;
     let notes = db.list_notes(account)?;
 
@@ -446,12 +472,35 @@ fn list_db_notes(account: &str, include_html: bool) -> anyhow::Result<Vec<DbNote
             body_html: None,
         });
     }
-    if include_html {
+    if !include_html.is_none() {
         // Fetch the raw HTML via Apple Events (Notes.app). This is slower, but preserves exact styling.
+        // Important: keep this serialized; Apple Events are not thread-safe.
+        let wanted = include_html.selection_len(out.len());
+        let pb = progress::bar(wanted as u64, "Fetching raw HTML (Notes.app)…");
+
         let osascript = crate::transport::OsascriptBackend;
+        let mut fetched = 0usize;
         for row in &mut out {
+            if !include_html.wants(&row.id) {
+                continue;
+            }
+            fetched += 1;
+            if let Some(pb) = &pb {
+                pb.set_message(format!(
+                    "HTML {}/{}: {}",
+                    fetched,
+                    wanted,
+                    truncate_title(&row.title)
+                ));
+            }
             let note = osascript.get_note(&row.id)?;
             row.body_html = Some(note.body_html);
+            if let Some(pb) = &pb {
+                pb.inc(1);
+            }
+        }
+        if let Some(pb) = pb {
+            pb.finish_and_clear();
         }
     }
 
@@ -499,8 +548,12 @@ fn export_one_db(
 }
 
 fn open_notes_db_readonly() -> anyhow::Result<rusqlite::Connection> {
-    let db_path = std::path::PathBuf::from(std::env::var("HOME").context("HOME not set")?)
-        .join("Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
+    let db_path = if let Some(p) = std::env::var_os("APPLE_NOTES_DB_PATH") {
+        std::path::PathBuf::from(p)
+    } else {
+        std::path::PathBuf::from(std::env::var("HOME").context("HOME not set")?)
+            .join("Library/Group Containers/group.com.apple.notes/NoteStore.sqlite")
+    };
 
     rusqlite::Connection::open_with_flags(
         db_path,
@@ -587,6 +640,9 @@ fn load_note_data(conn: &rusqlite::Connection, note_pk: i64) -> anyhow::Result<V
 fn decode_note_markdown(data: &[u8]) -> anyhow::Result<String> {
     let decoded = if data.starts_with(&[0x1f, 0x8b]) {
         gunzip(data).context("gunzip note blob")?
+    } else if data.len() >= 2 && data[0] == 0x78 {
+        // Many Notes blobs are zlib-compressed.
+        inflate_zlib(data).context("zlib decode note blob")?
     } else {
         data.to_vec()
     };
@@ -609,6 +665,13 @@ fn gunzip(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let mut dec = GzDecoder::new(data);
     let mut out = Vec::new();
     dec.read_to_end(&mut out).context("read gzip")?;
+    Ok(out)
+}
+
+fn inflate_zlib(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let mut dec = flate2::read::ZlibDecoder::new(data);
+    let mut out = Vec::new();
+    dec.read_to_end(&mut out).context("read zlib")?;
     Ok(out)
 }
 
@@ -672,6 +735,7 @@ mod tests {
     use super::*;
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use flate2::write::ZlibEncoder;
     use std::io::Write;
 
     #[test]
@@ -698,6 +762,18 @@ mod tests {
 
         let out = decode_note_markdown(&gz).unwrap();
         assert!(out.contains("Hello from Notes!"));
+        assert!(out.contains("Second line."));
+    }
+
+    #[test]
+    fn decode_note_markdown_extracts_text_from_zlib_blob() {
+        let payload = b"\0\0Title\0\0Hello from Notes via zlib!\nSecond line.\0\0";
+        let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(payload).unwrap();
+        let z = enc.finish().unwrap();
+
+        let out = decode_note_markdown(&z).unwrap();
+        assert!(out.contains("Hello from Notes via zlib!"));
         assert!(out.contains("Second line."));
     }
 

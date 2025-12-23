@@ -1,0 +1,12 @@
+---
+source: src/tables.rs
+assertion_line: 130
+expression: s
+---
+╭────────────────────────────┬─────────────────╮
+│ ID                         ┆ Title           │
+╞════════════════════════════╪═════════════════╡
+│ x-coredata://AAA/ICNote/p1 ┆ Home Electrical │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ x-coredata://AAA/ICNote/p2 ┆ Check breakers  │
+╰────────────────────────────┴─────────────────╯

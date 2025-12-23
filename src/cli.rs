@@ -80,8 +80,14 @@ pub enum Command {
         /// Number of export worker threads (decode/render + IO).
         #[arg(long, default_value_t = 4)]
         jobs: usize,
-        /// Do not write `contents.html` (raw HTML).
-        #[arg(long)]
+        /// Also write `contents.html` (raw HTML). This is slower and may require Notes.app permissions.
+        #[arg(long, conflicts_with_all = ["no_html", "html_only"])]
+        with_html: bool,
+        /// Write `contents.html` only for specific note ids (repeatable).
+        #[arg(long, value_name = "ID", conflicts_with_all = ["no_html", "with_html"])]
+        html_only: Vec<String>,
+        /// Do not write `contents.html` (raw HTML). (Deprecated; default is no HTML.)
+        #[arg(long, hide = true)]
         no_html: bool,
     },
 
@@ -231,10 +237,26 @@ pub enum BackupCmd {
         /// Number of export worker threads (render + IO). Note fetching is serialized for safety.
         #[arg(long, default_value_t = 4)]
         jobs: usize,
-        /// Do not write `contents.html` (raw HTML).
-        #[arg(long)]
+        /// Also write `contents.html` (raw HTML). This is slower and may require Notes.app permissions.
+        #[arg(long, conflicts_with_all = ["no_html", "html_only"])]
+        with_html: bool,
+        /// Write `contents.html` only for specific note ids (repeatable).
+        #[arg(long, value_name = "ID", conflicts_with_all = ["no_html", "with_html"])]
+        html_only: Vec<String>,
+        /// Do not write `contents.html` (raw HTML). (Deprecated; default is no HTML.)
+        #[arg(long, hide = true)]
         no_html: bool,
     },
+}
+
+fn export_html_mode(with_html: bool, html_only: Vec<String>) -> backup::HtmlExport {
+    if with_html {
+        return backup::HtmlExport::All;
+    }
+    if !html_only.is_empty() {
+        return backup::HtmlExport::Only(html_only);
+    }
+    backup::HtmlExport::None
 }
 
 pub fn dispatch(args: Args, backend: Box<dyn NotesBackend>) -> anyhow::Result<()> {
@@ -312,29 +334,61 @@ pub fn dispatch(args: Args, backend: Box<dyn NotesBackend>) -> anyhow::Result<()
             }
         },
         Command::Notes { cmd } => dispatch_notes(json, &account, backend, cmd),
-        Command::Export { out, jobs, no_html } => {
+        Command::Export {
+            out,
+            jobs,
+            with_html,
+            html_only,
+            no_html,
+        } => {
             if fixture.is_some() {
-                return backup::export_all(&*backend, &account, out, jobs, !no_html);
+                let html = if no_html {
+                    backup::HtmlExport::None
+                } else {
+                    export_html_mode(with_html, html_only)
+                };
+                return backup::export_all(&*backend, &account, out, jobs, html);
             }
+            let html = if no_html {
+                backup::HtmlExport::None
+            } else {
+                export_html_mode(with_html, html_only)
+            };
             match backend_mode {
-                Backend::Osascript => backup::export_all(&*backend, &account, out, jobs, !no_html),
-                Backend::Db => backup::export_all_db(&account, out, jobs, !no_html),
-                Backend::Auto => backup::export_all_db(&account, out.clone(), jobs, !no_html)
-                    .or_else(|_| backup::export_all(&*backend, &account, out, jobs, !no_html)),
+                Backend::Osascript => backup::export_all(&*backend, &account, out, jobs, html),
+                Backend::Db => backup::export_all_db(&account, out, jobs, html),
+                Backend::Auto => backup::export_all_db(&account, out.clone(), jobs, html.clone())
+                    .or_else(|_| backup::export_all(&*backend, &account, out, jobs, html)),
             }
         }
         Command::Backup { cmd } => match cmd {
-            BackupCmd::Export { out, jobs, no_html } => {
+            BackupCmd::Export {
+                out,
+                jobs,
+                with_html,
+                html_only,
+                no_html,
+            } => {
                 if fixture.is_some() {
-                    return backup::export_all(&*backend, &account, out, jobs, !no_html);
+                    let html = if no_html {
+                        backup::HtmlExport::None
+                    } else {
+                        export_html_mode(with_html, html_only)
+                    };
+                    return backup::export_all(&*backend, &account, out, jobs, html);
                 }
+                let html = if no_html {
+                    backup::HtmlExport::None
+                } else {
+                    export_html_mode(with_html, html_only)
+                };
                 match backend_mode {
-                    Backend::Osascript => {
-                        backup::export_all(&*backend, &account, out, jobs, !no_html)
+                    Backend::Osascript => backup::export_all(&*backend, &account, out, jobs, html),
+                    Backend::Db => backup::export_all_db(&account, out, jobs, html),
+                    Backend::Auto => {
+                        backup::export_all_db(&account, out.clone(), jobs, html.clone())
+                            .or_else(|_| backup::export_all(&*backend, &account, out, jobs, html))
                     }
-                    Backend::Db => backup::export_all_db(&account, out, jobs, !no_html),
-                    Backend::Auto => backup::export_all_db(&account, out.clone(), jobs, !no_html)
-                        .or_else(|_| backup::export_all(&*backend, &account, out, jobs, !no_html)),
                 }
             }
         },
