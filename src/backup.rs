@@ -43,6 +43,7 @@ pub fn export_all(
     account: &str,
     out_dir: String,
     jobs: usize,
+    include_html: bool,
 ) -> anyhow::Result<()> {
     if jobs == 0 {
         return Err(anyhow!("--jobs must be >= 1"));
@@ -83,7 +84,15 @@ pub fn export_all(
                     truncate_title(&n.title)
                 ));
             }
-            let item = build_item(backend, account, &out_dir, &folder_index, n, pb.as_ref())?;
+            let item = build_item(
+                backend,
+                account,
+                &out_dir,
+                &folder_index,
+                n,
+                pb.as_ref(),
+                include_html,
+            )?;
             write_item(&item)?;
             if let Some(pb) = &pb {
                 pb.inc(1);
@@ -131,7 +140,15 @@ pub fn export_all(
                         truncate_title(&n.title)
                     ));
                 }
-                let item = build_item(backend, account, &out_dir, &folder_index, n, pb.as_ref())?;
+                let item = build_item(
+                    backend,
+                    account,
+                    &out_dir,
+                    &folder_index,
+                    n,
+                    pb.as_ref(),
+                    include_html,
+                )?;
                 work_tx.send(item).ok();
                 sent += 1;
             }
@@ -198,6 +215,7 @@ struct WorkItem {
     note_dir: PathBuf,
     metadata_json: String,
     contents_md: String,
+    contents_html: Option<String>,
 }
 
 fn build_item(
@@ -207,6 +225,7 @@ fn build_item(
     folder_index: &FolderIndex,
     n: NoteSummary,
     _pb: Option<&indicatif::ProgressBar>,
+    include_html: bool,
 ) -> anyhow::Result<WorkItem> {
     let note = backend.get_note(&n.id)?;
     let folder_path = folder_index.folder_path(&note.folder_id).ok_or_else(|| {
@@ -218,6 +237,11 @@ fn build_item(
     })?;
 
     let contents_md = render::note_to_markdown(&note);
+    let contents_html = if include_html {
+        Some(note.body_html.clone())
+    } else {
+        None
+    };
     let metadata = BackupNoteMetadata {
         id: note.id.clone(),
         title: note.title.clone(),
@@ -233,6 +257,7 @@ fn build_item(
         note_dir,
         metadata_json,
         contents_md,
+        contents_html,
     })
 }
 
@@ -247,6 +272,11 @@ fn write_item(item: &WorkItem) -> anyhow::Result<()> {
     let contents_path = item.note_dir.join("contents.md");
     std::fs::write(&contents_path, &item.contents_md)
         .with_context(|| format!("write {contents_path:?}"))?;
+
+    if let Some(html) = &item.contents_html {
+        let html_path = item.note_dir.join("contents.html");
+        std::fs::write(&html_path, html).with_context(|| format!("write {html_path:?}"))?;
+    }
 
     Ok(())
 }
@@ -264,7 +294,12 @@ fn note_dir_name(title: &str, note_id: &str) -> String {
     format!("{base}-{short_id}")
 }
 
-pub fn export_all_db(account: &str, out_dir: String, jobs: usize) -> anyhow::Result<()> {
+pub fn export_all_db(
+    account: &str,
+    out_dir: String,
+    jobs: usize,
+    include_html: bool,
+) -> anyhow::Result<()> {
     if !cfg!(target_os = "macos") {
         return Err(anyhow!("db export is supported on macOS only"));
     }
@@ -285,7 +320,7 @@ pub fn export_all_db(account: &str, out_dir: String, jobs: usize) -> anyhow::Res
     let folder_index = FolderIndex::new(&folders)?;
 
     let spinner = progress::spinner("Indexing notes…");
-    let note_rows = list_db_notes(account)?;
+    let note_rows = list_db_notes(account, include_html)?;
     if let Some(spinner) = spinner {
         spinner.finish_and_clear();
     }
@@ -387,9 +422,10 @@ struct DbNoteRow {
     folder_id: String,
     created_at: OffsetDateTime,
     modified_at: OffsetDateTime,
+    body_html: Option<String>,
 }
 
-fn list_db_notes(account: &str) -> anyhow::Result<Vec<DbNoteRow>> {
+fn list_db_notes(account: &str, include_html: bool) -> anyhow::Result<Vec<DbNoteRow>> {
     let db = crate::db::NotesDb::open_default()?;
     let notes = db.list_notes(account)?;
 
@@ -407,8 +443,18 @@ fn list_db_notes(account: &str) -> anyhow::Result<Vec<DbNoteRow>> {
             folder_id: n.folder_id,
             created_at: created,
             modified_at: modified,
+            body_html: None,
         });
     }
+    if include_html {
+        // Fetch the raw HTML via Apple Events (Notes.app). This is slower, but preserves exact styling.
+        let osascript = crate::transport::OsascriptBackend;
+        for row in &mut out {
+            let note = osascript.get_note(&row.id)?;
+            row.body_html = Some(note.body_html);
+        }
+    }
+
     Ok(out)
 }
 
@@ -426,6 +472,7 @@ fn export_one_db(
     let pk = parse_coredata_pk(&row.id)?;
     let data = load_note_data(conn, pk)?;
     let contents_md = decode_note_markdown(&data).unwrap_or_else(|_| String::new());
+    let contents_html = row.body_html.clone();
 
     let folder_path = folder_index
         .folder_path(&row.folder_id)
@@ -447,6 +494,7 @@ fn export_one_db(
         note_dir,
         metadata_json,
         contents_md,
+        contents_html,
     })
 }
 
