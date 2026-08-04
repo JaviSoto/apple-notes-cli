@@ -13,6 +13,9 @@ fn osascript_bin() -> OsString {
     std::env::var_os("APPLE_NOTES_OSASCRIPT_BIN").unwrap_or_else(|| OsString::from("osascript"))
 }
 
+/// The bundle identifier avoids relying on LaunchServices to resolve `Notes` by display name.
+const NOTES_APP_BUNDLE_ID: &str = "com.apple.Notes";
+
 pub trait NotesBackend: Send + Sync {
     fn list_accounts(&self) -> anyhow::Result<Vec<Account>>;
     fn list_folders(&self, account: &str) -> anyhow::Result<Vec<Folder>>;
@@ -223,7 +226,7 @@ impl OsascriptBackend {
         let payload_json = serde_json::to_string(payload)?;
         Ok(format!(
             r#"
-const Notes = Application("Notes");
+const Notes = Application({NOTES_APP_BUNDLE_ID:?});
 Notes.includeStandardAdditions = true;
 
 const input = {payload_json};
@@ -527,7 +530,7 @@ on replace_chars(s, find, repl)
   return s2
 end replace_chars
 
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set f to folder id {folder_id:?}
   set folderId to (id of f as text)
   set ns to every note of f
@@ -553,7 +556,7 @@ on replace_chars(s, find, repl)
   return s2
 end replace_chars
 
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   tell account {account:?}
     repeat with f in folders
       set folderId to (id of f as text)
@@ -595,7 +598,7 @@ end tell
         let folder_id = self.resolve_folder_id(account, folder_path)?;
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set targetFolder to folder id {folder_id:?}
   set n to make new note at targetFolder with properties {{name:{title:?}, body:{body_html:?}}}
   return id of n as text
@@ -609,7 +612,7 @@ end tell
     fn set_note_title(&self, id: &str, title: &str) -> anyhow::Result<()> {
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set n to note id {id:?}
   set name of n to {title:?}
 end tell
@@ -622,7 +625,7 @@ end tell
     fn set_note_body_html(&self, id: &str, body_html: &str) -> anyhow::Result<()> {
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set n to note id {id:?}
   set body of n to {body_html:?}
 end tell
@@ -635,7 +638,7 @@ end tell
     fn append_note_body_html(&self, id: &str, body_html: &str) -> anyhow::Result<()> {
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set n to note id {id:?}
   set body of n to (body of n as text) & {body_html:?}
 end tell
@@ -648,7 +651,7 @@ end tell
     fn delete_note(&self, id: &str) -> anyhow::Result<()> {
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set n to note id {id:?}
   delete n
 end tell
@@ -662,7 +665,7 @@ end tell
         let folder_id = self.resolve_folder_id(account, folder_path)?;
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set n to note id {id:?}
   set targetFolder to folder id {folder_id:?}
   move n to targetFolder
@@ -682,7 +685,7 @@ end tell
         let parent_id = self.resolve_folder_id(account, parent_path)?;
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set parentFolder to folder id {parent_id:?}
   set f to make new folder at parentFolder with properties {{name:{name:?}}}
   return id of f as text
@@ -702,7 +705,7 @@ end tell
         let folder_id = self.resolve_folder_id(account, folder_path)?;
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set f to folder id {folder_id:?}
   set name of f to {name:?}
 end tell
@@ -716,7 +719,7 @@ end tell
         let folder_id = self.resolve_folder_id(account, folder_path)?;
         let script = format!(
             r#"
-tell application "Notes"
+tell application id {NOTES_APP_BUNDLE_ID:?}
   set f to folder id {folder_id:?}
   delete f
 end tell
@@ -801,6 +804,10 @@ ARGS="$*"
 SCRIPT="$(cat)"
 
 if [[ "$ARGS" == *"-l JavaScript"* ]]; then
+  if [[ "$MODE" == "requires_notes_app_bundle_id" ]] && ! grep -Fq 'Application("com.apple.Notes")' <<<"$SCRIPT"; then
+    printf '%s\n' "Application can't be found: Notes" >&2
+    exit 1
+  fi
   FLAT="$(printf '%s' "$SCRIPT" | tr '\n' ' ')"
   ACTION=""
   if [[ "$FLAT" == *'switch ("'* ]]; then
@@ -843,6 +850,10 @@ if [[ "$ARGS" == *"-l JavaScript"* ]]; then
 fi
 
 # AppleScript streaming path (stderr logs)
+if [[ "$MODE" == "requires_notes_app_bundle_id" ]] && ! grep -Fq 'tell application id "com.apple.Notes"' <<<"$SCRIPT"; then
+  printf '%s\n' "Application can't be found: Notes" >&2
+  exit 1
+fi
 printf 'log: id1\ttitle1\tfolder1\n' >&2
 printf 'log: id1\ttitle1\tfolder1\n' >&2
 printf 'log: id2\ttitle2\tfolder2\n' >&2
@@ -929,6 +940,15 @@ exit 0
     }
 
     #[test]
+    fn osascript_backend_get_note_uses_notes_app_bundle_id() {
+        with_stub_osascript("requires_notes_app_bundle_id", || {
+            let b = OsascriptBackend;
+            let note = b.get_note("x-coredata://UUID/ICNote/p20").unwrap();
+            assert_eq!(note.title, "Hello");
+        });
+    }
+
+    #[test]
     fn osascript_backend_stream_note_summaries_dedups() {
         with_stub_osascript("ok", || {
             let b = OsascriptBackend;
@@ -938,6 +958,17 @@ exit 0
             assert_eq!(out.len(), 2);
             assert_eq!(out[0].id, "id1");
             assert_eq!(out[1].id, "id2");
+        });
+    }
+
+    #[test]
+    fn osascript_backend_stream_note_summaries_uses_notes_app_bundle_id() {
+        with_stub_osascript("requires_notes_app_bundle_id", || {
+            let b = OsascriptBackend;
+            let mut out = Vec::new();
+            b.stream_note_summaries("iCloud", None, &mut |n| out.push(n))
+                .unwrap();
+            assert_eq!(out.len(), 2);
         });
     }
 
