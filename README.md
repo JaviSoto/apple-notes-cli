@@ -8,7 +8,7 @@ No browser, no Accessibility/UI scripting.
 
 ## Status
 
-This is new and evolving. It’s being built with open-sourcing in mind.
+This is a private, assistant-facing tool. It’s intentionally small and focused on a reliable local CLI.
 
 Vibe-coded with GPT 5.2 in Codex. Use with caution.
 
@@ -47,6 +47,17 @@ By default the CLI uses `--backend auto`, which prefers a fast SQLite/CoreData r
 
 - `apple-notes --backend db …` — fast reads (list/index) from the local Notes database; writes + full note reads still use `osascript`.
 - `apple-notes --backend osascript …` — everything via `osascript` (slower for large accounts, but doesn’t depend on DB schema).
+
+### Assistant/read-only mode
+
+Use `--read-only` for agent lookups when the process must not change Notes:
+
+```bash
+apple-notes --read-only --backend db notes list --json
+apple-notes --read-only --backend db notes show x-coredata://... --markdown
+```
+
+The flag refuses folder and note creation, edits, moves, and deletes before any write backend is called. Reads remain available. Exports are also allowed because they read Notes but write files under the requested output directory; `--read-only` does not make that filesystem destination read-only.
 
 ## Usage
 

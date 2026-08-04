@@ -40,6 +40,10 @@ pub struct Args {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Refuse all folder and note writes and deletes.
+    #[arg(long, global = true)]
+    pub read_only: bool,
+
     /// Use a local fixture backend instead of `osascript` (for tests/dev only).
     #[arg(long, global = true, value_name = "PATH", hide = true)]
     pub fixture: Option<PathBuf>,
@@ -259,12 +263,36 @@ fn export_html_mode(with_html: bool, html_only: Vec<String>) -> backup::HtmlExpo
     backup::HtmlExport::None
 }
 
+fn command_mutates_notes(command: &Command) -> bool {
+    match command {
+        Command::Folders { cmd } => matches!(
+            cmd,
+            FoldersCmd::Create { .. } | FoldersCmd::Rename { .. } | FoldersCmd::Delete { .. }
+        ),
+        Command::Notes { cmd } => matches!(
+            cmd,
+            NotesCmd::Create { .. }
+                | NotesCmd::Rename { .. }
+                | NotesCmd::SetBody { .. }
+                | NotesCmd::Append { .. }
+                | NotesCmd::Move { .. }
+                | NotesCmd::Delete { .. }
+        ),
+        Command::Accounts { .. } | Command::Export { .. } | Command::Backup { .. } => false,
+    }
+}
+
 pub fn dispatch(args: Args, backend: Box<dyn NotesBackend>) -> anyhow::Result<()> {
+    let read_only = args.read_only;
     let json = args.json;
     let account = args.account.clone();
     let backend_mode = args.backend;
     let fixture = args.fixture.clone();
     let cmd = args.cmd;
+
+    if read_only && command_mutates_notes(&cmd) {
+        return Err(anyhow!("refusing Notes write/delete in --read-only mode"));
+    }
 
     match cmd {
         Command::Accounts { cmd } => match cmd {
@@ -784,6 +812,129 @@ mod tests {
         assert_eq!(
             read_body(Some("x".into()), Some("y".into()), true).unwrap(),
             "x"
+        );
+    }
+
+    #[test]
+    fn read_only_classifier_blocks_notes_and_folder_mutations() {
+        let commands = [
+            Command::Folders {
+                cmd: FoldersCmd::Create {
+                    parent: "Personal".into(),
+                    name: "Archive".into(),
+                },
+            },
+            Command::Folders {
+                cmd: FoldersCmd::Rename {
+                    folder: "Personal".into(),
+                    name: "Work".into(),
+                },
+            },
+            Command::Folders {
+                cmd: FoldersCmd::Delete {
+                    folder: "Personal".into(),
+                    yes: true,
+                },
+            },
+            Command::Notes {
+                cmd: NotesCmd::Create {
+                    folder: "Personal".into(),
+                    title: "New".into(),
+                    body: None,
+                    body_file: None,
+                    stdin: false,
+                    markdown: false,
+                    html: false,
+                },
+            },
+            Command::Notes {
+                cmd: NotesCmd::Rename {
+                    id: "note".into(),
+                    title: "Renamed".into(),
+                },
+            },
+            Command::Notes {
+                cmd: NotesCmd::SetBody {
+                    id: "note".into(),
+                    body: None,
+                    body_file: None,
+                    stdin: false,
+                    markdown: false,
+                    html: false,
+                },
+            },
+            Command::Notes {
+                cmd: NotesCmd::Append {
+                    id: "note".into(),
+                    body: None,
+                    body_file: None,
+                    stdin: false,
+                    markdown: false,
+                    html: false,
+                },
+            },
+            Command::Notes {
+                cmd: NotesCmd::Move {
+                    id: "note".into(),
+                    folder: "Personal".into(),
+                },
+            },
+            Command::Notes {
+                cmd: NotesCmd::Delete {
+                    id: "note".into(),
+                    yes: true,
+                },
+            },
+        ];
+
+        assert!(commands.iter().all(command_mutates_notes));
+    }
+
+    #[test]
+    fn read_only_classifier_allows_reads_and_filesystem_exports() {
+        let commands = [
+            Command::Accounts {
+                cmd: AccountsCmd::List,
+            },
+            Command::Folders {
+                cmd: FoldersCmd::List { tree: false },
+            },
+            Command::Notes {
+                cmd: NotesCmd::List {
+                    folder: None,
+                    query: None,
+                    limit: None,
+                },
+            },
+            Command::Notes {
+                cmd: NotesCmd::Show {
+                    id: "note".into(),
+                    markdown: true,
+                    html: false,
+                },
+            },
+            Command::Export {
+                out: "backup".into(),
+                jobs: 1,
+                with_html: false,
+                html_only: vec![],
+                no_html: false,
+            },
+            Command::Backup {
+                cmd: BackupCmd::Export {
+                    out: "backup".into(),
+                    jobs: 1,
+                    with_html: false,
+                    html_only: vec![],
+                    no_html: false,
+                },
+            },
+        ];
+
+        assert!(
+            commands
+                .iter()
+                .all(|command| !command_mutates_notes(command))
         );
     }
 }

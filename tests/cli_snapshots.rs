@@ -68,6 +68,12 @@ fn snapshot_notes_show_markdown() {
 }
 
 #[test]
+fn read_only_allows_fixture_reads() {
+    let out = run_ok(&["--read-only", "notes", "show", "n2", "--markdown"]);
+    assert!(out.contains("Beta body"));
+}
+
+#[test]
 fn snapshot_notes_create_prints_id() {
     let out = run_ok(&[
         "notes",
@@ -98,6 +104,15 @@ fn snapshot_notes_delete_requires_yes() {
 fn snapshot_folders_delete_requires_yes() {
     let out = run_err(&["folders", "delete", "--folder", "Personal > Archive"]);
     assert_snapshot!("folders_delete_requires_yes", out);
+}
+
+#[test]
+fn read_only_rejects_note_delete_before_backend() {
+    let out = run_err(&["--read-only", "notes", "delete", "n2", "--yes"]);
+    assert!(
+        out.contains("command failed: refusing Notes write/delete in --read-only mode"),
+        "unexpected stderr: {out}"
+    );
 }
 
 #[test]

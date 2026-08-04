@@ -33,6 +33,9 @@ Options:
       --json
           Output JSON for machine consumption
 
+      --read-only
+          Refuse all folder and note writes and deletes
+
   -h, --help
           Print help (see a summary with '-h')
 
